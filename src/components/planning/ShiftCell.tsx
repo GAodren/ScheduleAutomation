@@ -15,6 +15,7 @@ export default function ShiftCell({ day, onUpdateMidi, onUpdateSoir }: ShiftCell
   return (
     <div className={`grid-cell ${cellClass}`}>
       <ShiftEditable value={day.midi} position="midi" onUpdate={onUpdateMidi} />
+      <div className="shift-separator" />
       <ShiftEditable value={day.soir} position="soir" onUpdate={onUpdateSoir} />
     </div>
   );
