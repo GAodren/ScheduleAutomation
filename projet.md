@@ -12,13 +12,11 @@
 
 ---
 
-## 🏗️ Architecture Technique (Ce qu'il te manque)
-
+## 🏗️ Architecture Technique
 ### 1. Backend & Base de Données : **Supabase**
 C'est le choix parfait pour ta stack. Il remplace avantageusement un serveur complexe.
 - **Auth :** Gestion des comptes clients (Restaurateurs).
 - **Database (PostgreSQL) :** Stockage des employés, de leurs contrats et des plannings générés.
-- **Edge Functions :** Pour héberger l'algorithme de génération de planning (pour ne pas ralentir le navigateur de l'utilisateur).
 
 ### 2. L'Intelligence : **L'Algorithme de Contraintes**
 C'est le cœur du projet. Tu dois gérer :
@@ -37,7 +35,7 @@ C'est le cœur du projet. Tu dois gérer :
 | **Frontend** | React + Vite | Interface utilisateur fluide. |
 | **Styles** | Tailwind CSS | Pour reproduire tes designs proprement et rapidement. |
 | **Base de données** | **Supabase** | Stockage des données et authentification. |
-| **State Management** | React Context ou TanStack Query | Gérer les données entre la config et le planning. |
+| **State Management** | React Context | Gérer les données entre la config et le planning. |
 | **Déploiement** | Vercel | Hébergement lié à GitHub. |
 
 ---
