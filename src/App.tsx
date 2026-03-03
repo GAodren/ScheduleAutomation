@@ -5,10 +5,32 @@ import PlanningPage from './components/planning/PlanningPage';
 import ConfigPage from './components/config/ConfigPage';
 
 function AppContent() {
-  const { state } = useSchedule();
+  const { state, dismissError } = useSchedule();
+
+  if (state.isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-screen">
+        <div className="text-center">
+          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-red-600 mx-auto" />
+          <p className="mt-4 text-gray-500 font-medium">Chargement du planning...</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>
+      {state.error && (
+        <div className="bg-red-50 border-b border-red-200 text-red-700 px-6 py-3 flex justify-between items-center">
+          <span className="text-sm font-medium">Erreur : {state.error}</span>
+          <button
+            onClick={dismissError}
+            className="text-red-500 hover:text-red-700 font-bold text-sm"
+          >
+            Fermer
+          </button>
+        </div>
+      )}
       <Navbar />
       {state.currentPage === 'planning' ? <PlanningPage /> : <ConfigPage />}
     </>

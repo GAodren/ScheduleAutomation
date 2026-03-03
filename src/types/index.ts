@@ -1,6 +1,6 @@
 export type DepartmentId = 'encadrement' | 'salle' | 'cuisine';
 
-export type StaffRole = 'gerant' | 'adjoint' | '';
+export type StaffRole = 'gerant' | 'adjoint' | 'standard';
 
 export type WeekNumber = 1 | 2;
 

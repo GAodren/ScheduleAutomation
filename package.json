@@ -20,6 +20,7 @@
   },
   "homepage": "https://github.com/GAodren/ScheduleAutomation#readme",
   "dependencies": {
+    "@supabase/supabase-js": "^2.98.0",
     "chart.js": "^4.5.1",
     "react": "^19.2.4",
     "react-chartjs-2": "^5.3.1",
