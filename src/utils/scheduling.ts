@@ -1,4 +1,4 @@
-import type { StaffConfig, ShiftPatterns, WeekSchedule, PersonSchedule, DayShift, DepartmentId } from '../types';
+import type { StaffConfig, ShiftPatterns, WeekSchedule, PersonSchedule, DayShift, DepartmentId, ShiftPattern, StaffRole } from '../types';
 import { DAYS, SHIFT_PATTERNS } from '../data/defaults';
 
 function toDecimal(timeStr: string): number {
@@ -37,17 +37,65 @@ export function calculateWeeklyTotal(days: DayShift[]): number {
   return Math.round(total * 100) / 100;
 }
 
+/** Calculate total hours for a shift pattern (midi + soir) */
+function patternDuration(pattern: ShiftPattern): number {
+  return calculateDuration(pattern.m) + calculateDuration(pattern.s);
+}
+
+/** Shuffle an array in place (Fisher-Yates) */
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+/** Sort role priority: gerant first, then adjoint, then standard */
+const ROLE_ORDER: Record<StaffRole, number> = { gerant: 0, adjoint: 1, standard: 2 };
+
+export function sortByRole<T extends { role: StaffRole }>(arr: T[]): T[] {
+  return [...arr].sort((a, b) => ROLE_ORDER[a.role] - ROLE_ORDER[b.role]);
+}
+
 export function generateScheduleForWeek(staffConfig: StaffConfig, shiftPatterns: ShiftPatterns): WeekSchedule {
   const week: Partial<WeekSchedule> = {};
 
   (Object.keys(staffConfig) as DepartmentId[]).forEach(dept => {
-    week[dept] = staffConfig[dept].map(p => {
-      const days: DayShift[] = DAYS.map(() => {
-        if (Math.random() > 0.8) return { midi: 'REPOS', soir: 'REPOS' };
-        const opts = shiftPatterns[p.role === 'adjoint' ? 'salle' : dept] || shiftPatterns['salle'];
-        const pick = opts[Math.floor(Math.random() * opts.length)];
-        return { midi: pick.m, soir: pick.s };
-      });
+    // Sort staff: adjoints before standard
+    const sortedStaff = sortByRole(staffConfig[dept]);
+
+    week[dept] = sortedStaff.map(p => {
+      const opts = shiftPatterns[p.role === 'adjoint' ? 'salle' : dept] || shiftPatterns['salle'];
+
+      // Pre-compute duration of each pattern
+      const patternsWithDuration = opts.map(pat => ({
+        pattern: pat,
+        duration: patternDuration(pat),
+      }));
+
+      let budget = p.maxHours;
+      const dayIndices = DAYS.map((_, i) => i);
+      const shuffledIndices = shuffle(dayIndices);
+
+      // Assign shifts in random day order to spread repos across the week
+      const days: DayShift[] = new Array(7);
+
+      for (const idx of shuffledIndices) {
+        // Filter patterns that fit within remaining budget
+        const fitting = patternsWithDuration.filter(pd => pd.duration <= budget);
+
+        if (fitting.length === 0) {
+          // No pattern fits — repos
+          days[idx] = { midi: 'REPOS', soir: 'REPOS' };
+        } else {
+          // Pick a random fitting pattern
+          const pick = fitting[Math.floor(Math.random() * fitting.length)];
+          days[idx] = { midi: pick.pattern.m, soir: pick.pattern.s };
+          budget -= pick.duration;
+        }
+      }
 
       const person: PersonSchedule = {
         ...p,

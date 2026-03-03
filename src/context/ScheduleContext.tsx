@@ -10,7 +10,7 @@ import type {
   StaffRole,
 } from '../types';
 import { DEFAULT_STAFF_CONFIG, DEPARTMENT_IDS } from '../data/defaults';
-import { generateNewCycleData, calculateWeeklyTotal } from '../utils/scheduling';
+import { generateNewCycleData, calculateWeeklyTotal, sortByRole } from '../utils/scheduling';
 import { fetchAllMembres, insertMembre, updateMembre, deleteMembre, type DbMembre } from '../lib/membresService';
 import { fetchAllPlannings, batchUpsertPlannings, type DbPlanning } from '../lib/planningsService';
 
@@ -25,6 +25,10 @@ function dbMembresToStaffConfig(dbMembres: DbMembre[]): StaffConfig {
       maxHours: m.max_hours,
     });
   });
+  // Sort each department: adjoints before standard
+  config.encadrement = sortByRole(config.encadrement);
+  config.salle = sortByRole(config.salle);
+  config.cuisine = sortByRole(config.cuisine);
   return config;
 }
 
