@@ -56,14 +56,14 @@
 
 .grid-header {
   background-color: #f1f5f9;
-  border-bottom: 2px solid #cbd5e1;
+  border-bottom: 2px solid #000;
   padding: 8px 4px;
   font-weight: 800;
   font-size: 0.6rem;
   text-transform: uppercase;
   text-align: center;
   color: #475569;
-  border-right: 1px solid #cbd5e1;
+  border-right: 2px solid #000;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -72,8 +72,8 @@
 .grid-cell,
 .name-cell,
 .total-cell {
-  border-bottom: 2px solid #e2e8f0;
-  border-right: 1px solid #cbd5e1;
+  border-bottom: 2px solid #000;
+  border-right: 2px solid #000;
   min-height: 55px;
   padding: 0;
   display: flex;
@@ -90,10 +90,18 @@
 .shift-half {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
   padding: 4px 2px;
   min-width: 0;
+}
+
+.shift-half-midi {
+  align-items: flex-start;
+  justify-content: flex-start;
+}
+
+.shift-half-soir {
+  align-items: flex-end;
+  justify-content: flex-end;
 }
 
 .shift-half-repos {
@@ -158,10 +166,7 @@
   white-space: nowrap;
 }
 
-.midi-time,
-.soir-time {
-  /* Centered within each half */
-}
+/* .midi-time / .soir-time classes kept on ShiftEditable for compatibility */
 
 .shift-editable:focus {
   background: white;
