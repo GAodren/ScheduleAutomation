@@ -3,6 +3,7 @@ import { useSchedule } from './hooks/useSchedule';
 import Navbar from './components/layout/Navbar';
 import PlanningPage from './components/planning/PlanningPage';
 import ConfigPage from './components/config/ConfigPage';
+import HistoryPage from './components/history/HistoryPage';
 
 function AppContent() {
   const { state, dismissError } = useSchedule();
@@ -18,6 +19,14 @@ function AppContent() {
     );
   }
 
+  const renderPage = () => {
+    switch (state.currentPage) {
+      case 'planning': return <PlanningPage />;
+      case 'config': return <ConfigPage />;
+      case 'history': return <HistoryPage />;
+    }
+  };
+
   return (
     <>
       {state.error && (
@@ -32,7 +41,7 @@ function AppContent() {
         </div>
       )}
       <Navbar />
-      {state.currentPage === 'planning' ? <PlanningPage /> : <ConfigPage />}
+      {renderPage()}
     </>
   );
 }

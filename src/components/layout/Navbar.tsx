@@ -33,17 +33,22 @@ export default function Navbar() {
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2 bg-gray-100 p-1 rounded-xl no-print">
             <button onClick={() => switchPage('planning')} className={tabClass('planning')}>
-              📅 PLANNING
+              PLANNING
             </button>
             <button onClick={() => switchPage('config')} className={tabClass('config')}>
-              ⚙️ CONFIGURATION
+              CONFIGURATION
+            </button>
+            <button onClick={() => switchPage('history')} className={tabClass('history')}>
+              HISTORIQUE
             </button>
           </div>
 
-          <div className="flex bg-gray-100 p-1 rounded-lg">
-            <button onClick={() => setWeek(1)} className={weekBtnClass(1)}>S1</button>
-            <button onClick={() => setWeek(2)} className={weekBtnClass(2)}>S2</button>
-          </div>
+          {currentPage !== 'history' && (
+            <div className="flex bg-gray-100 p-1 rounded-lg">
+              <button onClick={() => setWeek(1)} className={weekBtnClass(1)}>S1</button>
+              <button onClick={() => setWeek(2)} className={weekBtnClass(2)}>S2</button>
+            </div>
+          )}
         </div>
       </div>
     </nav>

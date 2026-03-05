@@ -8,9 +8,16 @@ import type {
   WeekSchedule,
   PersonSchedule,
   StaffRole,
+  CoversData,
+  LegalAlert,
+  PlanningStatus,
+  ExpertiseLevel,
+  ContractType,
+  StaffMember,
 } from '../types';
-import { DEFAULT_STAFF_CONFIG, DEPARTMENT_IDS } from '../data/defaults';
-import { generateNewCycleData, calculateWeeklyTotal, sortByRole } from '../utils/scheduling';
+import { DEFAULT_STAFF_CONFIG, DEPARTMENT_IDS, createEmptyCovers } from '../data/defaults';
+import { generateNewCycleData, calculateWeeklyTotal, sortByRole, generateSmartCycleData } from '../utils/scheduling';
+import { checkLegalRules } from '../utils/legalRules';
 import { fetchAllMembres, insertMembre, updateMembre, deleteMembre, type DbMembre } from '../lib/membresService';
 import { fetchAllPlannings, batchUpsertPlannings, type DbPlanning } from '../lib/planningsService';
 
@@ -23,9 +30,15 @@ function dbMembresToStaffConfig(dbMembres: DbMembre[]): StaffConfig {
       id: m.name,
       role: m.role,
       maxHours: m.max_hours,
+      expertise: m.expertise || 'intermediaire',
+      contractType: m.contract_type || 'cdi',
+      polyvalent: m.polyvalent || false,
+      coversMidi: m.covers_midi || 30,
+      coversSoir: m.covers_soir || 25,
+      restDays: m.rest_days || [],
+      unavailableDates: m.unavailable_dates || [],
     });
   });
-  // Sort each department: adjoints before standard
   config.encadrement = sortByRole(config.encadrement);
   config.salle = sortByRole(config.salle);
   config.cuisine = sortByRole(config.cuisine);
@@ -42,11 +55,9 @@ function dbPlanningsToScheduleData(
   dbPlannings: DbPlanning[],
   dbMembres: DbMembre[],
 ): ScheduleData {
-  // Build lookup: uuid -> DbMembre
   const membreById: Record<string, DbMembre> = {};
   dbMembres.forEach(m => { membreById[m.id] = m; });
 
-  // Group plannings by membre
   const planningsByMembre: Record<string, DbPlanning[]> = {};
   dbPlannings.forEach(p => {
     if (!planningsByMembre[p.membre_id]) planningsByMembre[p.membre_id] = [];
@@ -58,7 +69,6 @@ function dbPlanningsToScheduleData(
     2: { encadrement: [], salle: [], cuisine: [] },
   };
 
-  // For each membre, build their PersonSchedule for each week
   dbMembres.forEach(m => {
     const memberPlannings = planningsByMembre[m.id] || [];
 
@@ -73,6 +83,13 @@ function dbPlanningsToScheduleData(
         id: m.name,
         role: m.role,
         maxHours: m.max_hours,
+        expertise: m.expertise || 'intermediaire',
+        contractType: m.contract_type || 'cdi',
+        polyvalent: m.polyvalent || false,
+        coversMidi: m.covers_midi || 30,
+        coversSoir: m.covers_soir || 25,
+        restDays: m.rest_days || [],
+        unavailableDates: m.unavailable_dates || [],
         days,
         hours: calculateWeeklyTotal(days),
       };
@@ -103,6 +120,8 @@ function scheduleDataToDbRows(
             day_index: dayIdx,
             midi: day.midi,
             soir: day.soir,
+            status: 'draft',
+            year_week: '',
           });
         });
       });
@@ -122,6 +141,9 @@ interface ScheduleState {
   isLoading: boolean;
   error: string | null;
   membreIdMap: Record<string, string>;
+  coversData: CoversData;
+  legalAlerts: LegalAlert[];
+  planningStatus: PlanningStatus;
 }
 
 const EMPTY_WEEK: WeekSchedule = { encadrement: [], salle: [], cuisine: [] };
@@ -134,6 +156,9 @@ const initialState: ScheduleState = {
   isLoading: true,
   error: null,
   membreIdMap: {},
+  coversData: createEmptyCovers(),
+  legalAlerts: [],
+  planningStatus: 'draft',
 };
 
 // --- Actions ---
@@ -145,12 +170,18 @@ type Action =
   | { type: 'SET_ERROR'; error: string | null }
   | { type: 'LOAD_DATA'; staffConfig: StaffConfig; scheduleData: ScheduleData; membreIdMap: Record<string, string> }
   | { type: 'GENERATE_NEW_CYCLE' }
+  | { type: 'GENERATE_SMART_CYCLE' }
   | { type: 'UPDATE_SHIFT'; week: WeekNumber; dept: DepartmentId; personIndex: number; dayIndex: number; part: 'midi' | 'soir'; value: string }
-  | { type: 'ADD_STAFF'; name: string; dept: DepartmentId; maxHours: number; uuid: string }
+  | { type: 'ADD_STAFF'; name: string; dept: DepartmentId; maxHours: number; uuid: string; extras?: Partial<StaffMember> }
   | { type: 'REMOVE_STAFF'; dept: DepartmentId; index: number; membreName: string }
   | { type: 'UPDATE_STAFF_LIMIT'; dept: DepartmentId; index: number; maxHours: number }
   | { type: 'EDIT_STAFF_NAME'; dept: DepartmentId; index: number; newName: string; oldName: string; uuid: string }
-  | { type: 'TOGGLE_ADJOINT'; dept: DepartmentId; index: number };
+  | { type: 'TOGGLE_ADJOINT'; dept: DepartmentId; index: number }
+  | { type: 'UPDATE_COVERS'; week: WeekNumber; dayIndex: number; service: 'midi' | 'soir'; value: number }
+  | { type: 'SET_LEGAL_ALERTS'; alerts: LegalAlert[] }
+  | { type: 'UPDATE_STAFF_FIELD'; dept: DepartmentId; index: number; field: string; value: unknown }
+  | { type: 'SET_PLANNING_STATUS'; status: PlanningStatus }
+  | { type: 'SET_SCHEDULE_DATA'; scheduleData: ScheduleData };
 
 function reducer(state: ScheduleState, action: Action): ScheduleState {
   switch (action.type) {
@@ -178,7 +209,12 @@ function reducer(state: ScheduleState, action: Action): ScheduleState {
 
     case 'GENERATE_NEW_CYCLE': {
       const newData = generateNewCycleData(state.staffConfig);
-      return { ...state, scheduleData: newData };
+      return { ...state, scheduleData: newData, planningStatus: 'draft' };
+    }
+
+    case 'GENERATE_SMART_CYCLE': {
+      const newData = generateSmartCycleData(state.staffConfig, state.coversData);
+      return { ...state, scheduleData: newData, planningStatus: 'draft' };
     }
 
     case 'UPDATE_SHIFT': {
@@ -201,12 +237,21 @@ function reducer(state: ScheduleState, action: Action): ScheduleState {
     }
 
     case 'ADD_STAFF': {
-      const { name, dept, maxHours, uuid } = action;
+      const { name, dept, maxHours, uuid, extras } = action;
       const newConfig = { ...state.staffConfig };
-      newConfig[dept] = [
-        ...newConfig[dept],
-        { id: name, maxHours, role: (dept === 'encadrement' ? 'gerant' : 'standard') as StaffRole },
-      ];
+      const newMember: StaffMember = {
+        id: name,
+        maxHours,
+        role: (dept === 'encadrement' ? 'gerant' : 'standard') as StaffRole,
+        expertise: extras?.expertise || 'intermediaire',
+        contractType: extras?.contractType || 'cdi',
+        polyvalent: extras?.polyvalent || false,
+        coversMidi: extras?.coversMidi || 30,
+        coversSoir: extras?.coversSoir || 25,
+        restDays: extras?.restDays || [],
+        unavailableDates: [],
+      };
+      newConfig[dept] = [...newConfig[dept], newMember];
       const newData = generateNewCycleData(newConfig);
       const newMap = { ...state.membreIdMap, [name]: uuid };
       return { ...state, staffConfig: newConfig, scheduleData: newData, membreIdMap: newMap };
@@ -257,7 +302,6 @@ function reducer(state: ScheduleState, action: Action): ScheduleState {
         }
         newScheduleData[w] = weekData;
       });
-      // Update membreIdMap
       const newMap = { ...state.membreIdMap };
       delete newMap[oldName];
       newMap[newName] = uuid;
@@ -287,6 +331,44 @@ function reducer(state: ScheduleState, action: Action): ScheduleState {
       return { ...state, staffConfig: newConfig, scheduleData: newScheduleData };
     }
 
+    case 'UPDATE_COVERS': {
+      const { week, dayIndex, service, value } = action;
+      const newCovers = { ...state.coversData };
+      const weekCovers = [...newCovers[week]];
+      weekCovers[dayIndex] = { ...weekCovers[dayIndex], [service]: value };
+      newCovers[week] = weekCovers;
+      return { ...state, coversData: newCovers };
+    }
+
+    case 'SET_LEGAL_ALERTS':
+      return { ...state, legalAlerts: action.alerts };
+
+    case 'UPDATE_STAFF_FIELD': {
+      const { dept, index, field, value } = action;
+      const newConfig = { ...state.staffConfig };
+      newConfig[dept] = newConfig[dept].map((p, i) =>
+        i === index ? { ...p, [field]: value } : p
+      );
+      // Also update in scheduleData
+      const newScheduleData = { ...state.scheduleData };
+      ([1, 2] as WeekNumber[]).forEach(w => {
+        const weekData = { ...newScheduleData[w] };
+        if (weekData[dept] && weekData[dept][index]) {
+          const deptData = [...weekData[dept]];
+          deptData[index] = { ...deptData[index], [field]: value };
+          weekData[dept] = deptData;
+        }
+        newScheduleData[w] = weekData;
+      });
+      return { ...state, staffConfig: newConfig, scheduleData: newScheduleData };
+    }
+
+    case 'SET_PLANNING_STATUS':
+      return { ...state, planningStatus: action.status };
+
+    case 'SET_SCHEDULE_DATA':
+      return { ...state, scheduleData: action.scheduleData };
+
     default:
       return state;
   }
@@ -300,12 +382,17 @@ interface ScheduleContextValue {
   switchPage: (page: PageId) => void;
   dismissError: () => void;
   generateNewCycle: () => Promise<void>;
+  generateSmartCycle: () => void;
   updateShift: (week: WeekNumber, dept: DepartmentId, personIndex: number, dayIndex: number, part: 'midi' | 'soir', value: string) => void;
-  addStaff: (name: string, dept: DepartmentId, maxHours: number) => Promise<void>;
+  addStaff: (name: string, dept: DepartmentId, maxHours: number, extras?: { expertise?: ExpertiseLevel; contractType?: ContractType; polyvalent?: boolean; coversMidi?: number; coversSoir?: number }) => Promise<void>;
   removeStaff: (dept: DepartmentId, index: number) => Promise<void>;
   updateStaffLimit: (dept: DepartmentId, index: number, maxHours: number) => Promise<void>;
   editStaffName: (dept: DepartmentId, index: number, newName: string) => Promise<void>;
   toggleAdjoint: (dept: DepartmentId, index: number) => Promise<void>;
+  updateCovers: (week: WeekNumber, dayIndex: number, service: 'midi' | 'soir', value: number) => void;
+  updateStaffField: (dept: DepartmentId, index: number, field: string, value: unknown) => Promise<void>;
+  validatePlanning: () => void;
+  startFinalEntry: () => void;
 }
 
 export const ScheduleContext = createContext<ScheduleContextValue | null>(null);
@@ -322,7 +409,6 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
         const dbMembres = await fetchAllMembres();
 
         if (dbMembres.length === 0) {
-          // No data in DB yet — use defaults and generate
           dispatch({ type: 'SET_LOADING', isLoading: false });
           dispatch({ type: 'GENERATE_NEW_CYCLE' });
           return;
@@ -334,7 +420,6 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
         let scheduleData: ScheduleData;
         if (dbPlannings.length === 0) {
-          // Membres exist but no plannings — generate and save
           scheduleData = generateNewCycleData(staffConfig);
           const rows = scheduleDataToDbRows(scheduleData, membreIdMap);
           await batchUpsertPlannings(rows);
@@ -350,6 +435,13 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     }
     loadData();
   }, []);
+
+  // --- Recompute legal alerts when schedule changes ---
+  useEffect(() => {
+    if (state.isLoading) return;
+    const alerts = checkLegalRules(state.scheduleData);
+    dispatch({ type: 'SET_LEGAL_ALERTS', alerts });
+  }, [state.scheduleData, state.isLoading]);
 
   // --- Sync scheduleData to Supabase with debounce ---
   const syncScheduleToDb = useCallback(async (scheduleData: ScheduleData, membreIdMap: Record<string, string>) => {
@@ -368,9 +460,7 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       isInitialLoad.current = false;
       return;
     }
-    // Don't sync while loading
     if (state.isLoading) return;
-    // Don't sync if no membreIdMap (no DB connection)
     if (Object.keys(state.membreIdMap).length === 0) return;
 
     if (syncTimeoutRef.current) clearTimeout(syncTimeoutRef.current);
@@ -383,6 +473,17 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
     };
   }, [state.scheduleData, state.membreIdMap, state.isLoading, syncScheduleToDb]);
 
+  // --- DB field mapping for staff updates ---
+  const FIELD_TO_DB: Record<string, string> = {
+    expertise: 'expertise',
+    contractType: 'contract_type',
+    polyvalent: 'polyvalent',
+    coversMidi: 'covers_midi',
+    coversSoir: 'covers_soir',
+    restDays: 'rest_days',
+    unavailableDates: 'unavailable_dates',
+  };
+
   // --- Action handlers ---
 
   const value: ScheduleContextValue = {
@@ -393,19 +494,34 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
 
     generateNewCycle: async () => {
       dispatch({ type: 'GENERATE_NEW_CYCLE' });
-      // Sync happens via the useEffect debounce
+    },
+
+    generateSmartCycle: () => {
+      dispatch({ type: 'GENERATE_SMART_CYCLE' });
     },
 
     updateShift: (week, dept, personIndex, dayIndex, part, value) => {
       dispatch({ type: 'UPDATE_SHIFT', week, dept, personIndex, dayIndex, part, value });
-      // Sync happens via the useEffect debounce
     },
 
-    addStaff: async (name, dept, maxHours) => {
+    addStaff: async (name, dept, maxHours, extras) => {
       try {
         const role: StaffRole = dept === 'encadrement' ? 'gerant' : 'standard';
-        const dbMembre = await insertMembre(name, dept, role, maxHours);
-        dispatch({ type: 'ADD_STAFF', name, dept, maxHours, uuid: dbMembre.id });
+        const dbMembre = await insertMembre(name, dept, role, maxHours, {
+          expertise: extras?.expertise,
+          contract_type: extras?.contractType,
+          polyvalent: extras?.polyvalent,
+          covers_midi: extras?.coversMidi,
+          covers_soir: extras?.coversSoir,
+        });
+        dispatch({
+          type: 'ADD_STAFF',
+          name,
+          dept,
+          maxHours,
+          uuid: dbMembre.id,
+          extras: extras as Partial<StaffMember>,
+        });
       } catch (err) {
         dispatch({ type: 'SET_ERROR', error: (err as Error).message });
       }
@@ -463,6 +579,32 @@ export function ScheduleProvider({ children }: { children: ReactNode }) {
       } catch (err) {
         dispatch({ type: 'SET_ERROR', error: (err as Error).message });
       }
+    },
+
+    updateCovers: (week, dayIndex, service, value) => {
+      dispatch({ type: 'UPDATE_COVERS', week, dayIndex, service, value });
+    },
+
+    updateStaffField: async (dept, index, field, value) => {
+      try {
+        const membreName = state.staffConfig[dept][index].id;
+        const uuid = state.membreIdMap[membreName];
+        const dbField = FIELD_TO_DB[field];
+        if (uuid && dbField) {
+          await updateMembre(uuid, { [dbField]: value } as any);
+        }
+        dispatch({ type: 'UPDATE_STAFF_FIELD', dept, index, field, value });
+      } catch (err) {
+        dispatch({ type: 'SET_ERROR', error: (err as Error).message });
+      }
+    },
+
+    validatePlanning: () => {
+      dispatch({ type: 'SET_PLANNING_STATUS', status: 'initial' });
+    },
+
+    startFinalEntry: () => {
+      dispatch({ type: 'SET_PLANNING_STATUS', status: 'final' });
     },
   };
 

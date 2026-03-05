@@ -1,6 +1,7 @@
 import { useSchedule } from '../../hooks/useSchedule';
 import { DEPARTMENT_CONFIGS } from '../../data/defaults';
 import PlanningToolbar from './PlanningToolbar';
+import PlanningStatusBar from './PlanningStatusBar';
 import DepartmentBlock from './DepartmentBlock';
 import Charts from './Charts';
 
@@ -11,6 +12,7 @@ export default function PlanningPage() {
   return (
     <main className="planning-page max-w-[1600px] mx-auto px-6 mt-6">
       <PlanningToolbar />
+      <PlanningStatusBar />
 
       <div>
         {DEPARTMENT_CONFIGS.map(conf => (
